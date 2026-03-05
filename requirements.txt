@@ -2,3 +2,4 @@ firebase-admin
 tensorflow
 numpy
 joblib
+scikit-learn

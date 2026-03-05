@@ -6,14 +6,19 @@ import random
 import time
 import os
 
-print("FILES IN CONTAINER:", os.listdir())
+# =====================================
+# CLOCK FIX (prevents JWT signature errors)
+# =====================================
+
+os.environ["TZ"] = "UTC"
+time.tzset()
 
 # =====================================
 # SETTINGS
 # =====================================
 
 TEST_MODE = False        # True = simulate data
-TEST_SCENARIO = "LOW"    # NORMAL / LOW / HIGH (only used if TEST_MODE=True)
+TEST_SCENARIO = "LOW"    # NORMAL / LOW / HIGH
 
 WINDOW_SIZE = 60
 
@@ -25,19 +30,19 @@ print("Loading LSTM model...")
 model = tf.keras.models.load_model("parasomnia_lstm.keras")
 
 # =====================================
-# FIREBASE INIT
+# FIREBASE INITIALIZATION
 # =====================================
 
-cred = credentials.Certificate("./serviceAccountKey.json")
+cred = credentials.Certificate("serviceAccountKey.json")
 
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://sleepguard-8eb64-default-rtdb.asia-southeast1.firebasedatabase.app/'
+    "databaseURL": "https://sleepguard-8eb64-default-rtdb.asia-southeast1.firebasedatabase.app"
 })
+
+print("Connected to Firebase.")
 
 sensor_ref = db.reference("device1")
 risk_ref = db.reference("active_user/risk_status")
-
-print("Connected to Firebase.")
 
 # =====================================
 # POSTURE MAP
@@ -68,11 +73,13 @@ def compute_risk_score(prediction, window):
     bpm_values = [x[0] for x in window]
     posture_values = [x[2] for x in window]
 
-    avg_bpm = np.mean(bpm_values) * 100
+    avg_bpm = np.mean(bpm_values)
     movement = np.mean(posture_values)
 
-    physio_score = (avg_bpm * 0.4) + (movement * 60)
+    # Physiological score
+    physio_score = (avg_bpm * 40) + (movement * 60)
 
+    # Model probability score
     model_score = (low_prob * 40) + (high_prob * 100)
 
     risk_score = round((physio_score * 0.4) + (model_score * 0.6))
@@ -91,7 +98,7 @@ def compute_risk_score(prediction, window):
     return risk_score, status, normal_prob, low_prob, high_prob
 
 # =====================================
-# TEST DATA GENERATOR
+# TEST MODE GENERATOR
 # =====================================
 
 def generate_test_sample():
@@ -129,18 +136,6 @@ def generate_test_sample():
     return bpm, avgBPM, posture
 
 # =====================================
-# NORMALIZATION FUNCTION
-# =====================================
-
-def normalize_sample(bpm, avgBPM, posture):
-
-    bpm_norm = (bpm - 40) / (140 - 40)
-    avg_norm = (avgBPM - 40) / (140 - 40)
-    posture_norm = posture / 2
-
-    return [bpm_norm, avg_norm, posture_norm]
-
-# =====================================
 # REALTIME LISTENER
 # =====================================
 
@@ -169,7 +164,12 @@ def listener(event):
 
     posture_encoded = posture_map.get(posture, 0)
 
-    sample_scaled = normalize_sample(bpm, avgBPM, posture_encoded)
+    # Normalize manually (same range used in training)
+    bpm_norm = (bpm - 40) / (140 - 40)
+    avg_norm = (avgBPM - 40) / (140 - 40)
+    posture_norm = posture_encoded / 2
+
+    sample_scaled = [bpm_norm, avg_norm, posture_norm]
 
     window.append(sample_scaled)
 
@@ -178,7 +178,6 @@ def listener(event):
     if len(window) >= WINDOW_SIZE:
 
         input_data = np.array([window])
-
         prediction = model.predict(input_data, verbose=0)[0]
 
         risk_score, status, normal, low, high = compute_risk_score(prediction, window)
@@ -186,9 +185,9 @@ def listener(event):
         risk_ref.set({
             "risk_score": risk_score,
             "risk_status": status,
-            "normal_probability": round(normal*100),
-            "low_probability": round(low*100),
-            "high_probability": round(high*100)
+            "normal_probability": round(normal * 100),
+            "low_probability": round(low * 100),
+            "high_probability": round(high * 100)
         })
 
         print("\n==============================")
@@ -216,16 +215,19 @@ def run_test_mode():
 
         bpm, avgBPM, posture = generate_test_sample()
 
-        sample_scaled = normalize_sample(bpm, avgBPM, posture)
+        bpm_norm = (bpm - 40) / (140 - 40)
+        avg_norm = (avgBPM - 40) / (140 - 40)
+        posture_norm = posture / 2
+
+        sample_scaled = [bpm_norm, avg_norm, posture_norm]
 
         window.append(sample_scaled)
 
-        print(f"Simulated {len(window)}/{WINDOW_SIZE}")
+        print(f"Simulated {len(window)}/60")
 
         if len(window) >= WINDOW_SIZE:
 
             input_data = np.array([window])
-
             prediction = model.predict(input_data, verbose=0)[0]
 
             risk_score, status, normal, low, high = compute_risk_score(prediction, window)
@@ -233,9 +235,9 @@ def run_test_mode():
             risk_ref.set({
                 "risk_score": risk_score,
                 "risk_status": status,
-                "normal_probability": round(normal*100),
-                "low_probability": round(low*100),
-                "high_probability": round(high*100)
+                "normal_probability": round(normal * 100),
+                "low_probability": round(low * 100),
+                "high_probability": round(high * 100)
             })
 
             print("\n==============================")
@@ -263,15 +265,10 @@ if TEST_MODE:
 
 else:
 
-    print("Listening for ESP32 data...")
-
     while True:
         try:
+            print("Listening for ESP32 data...")
             sensor_ref.listen(listener)
         except Exception as e:
             print("Firebase disconnected:", e)
             time.sleep(5)
-
-
-
-

@@ -1,5 +1,3 @@
 firebase-admin
-tensorflow
+tensorflow-cpu
 numpy
-joblib
-scikit-learn

@@ -15,7 +15,7 @@ TEST_SCENARIO = "LOW"    # NORMAL / LOW / HIGH (only used if TEST_MODE=True)
 WINDOW_SIZE = 60
 
 # =====================================
-# LOAD MODEL AND SCALER
+# LOAD MODEL
 # =====================================
 
 print("Loading LSTM model...")
@@ -25,7 +25,7 @@ model = tf.keras.models.load_model("parasomnia_lstm.keras")
 # FIREBASE INIT
 # =====================================
 
-cred = credentials.Certificate("serviceAccountKey.json")
+cred = credentials.Certificate("./serviceAccountKey.json")
 
 firebase_admin.initialize_app(cred, {
     'databaseURL': 'https://sleepguard-8eb64-default-rtdb.asia-southeast1.firebasedatabase.app/'
@@ -53,7 +53,7 @@ posture_map = {
 window = []
 
 # =====================================
-# RISK CALCULATION FUNCTION
+# RISK CALCULATION
 # =====================================
 
 def compute_risk_score(prediction, window):
@@ -62,24 +62,20 @@ def compute_risk_score(prediction, window):
     low_prob = prediction[1]
     high_prob = prediction[2]
 
-    # Convert scaled values back to approximate scale
     bpm_values = [x[0] for x in window]
     posture_values = [x[2] for x in window]
 
-    avg_bpm = np.mean(bpm_values)
+    avg_bpm = np.mean(bpm_values) * 100
     movement = np.mean(posture_values)
 
-    # Physiological component
-    physio_score = (avg_bpm * 40) + (movement * 60)
+    physio_score = (avg_bpm * 0.4) + (movement * 60)
 
-    # Model component
     model_score = (low_prob * 40) + (high_prob * 100)
 
     risk_score = round((physio_score * 0.4) + (model_score * 0.6))
 
     risk_score = max(0, min(100, risk_score))
 
-    # Status from model
     class_index = np.argmax(prediction)
 
     if class_index == 0:
@@ -92,7 +88,7 @@ def compute_risk_score(prediction, window):
     return risk_score, status, normal_prob, low_prob, high_prob
 
 # =====================================
-# TEST MODE DATA GENERATOR
+# TEST DATA GENERATOR
 # =====================================
 
 def generate_test_sample():
@@ -130,6 +126,18 @@ def generate_test_sample():
     return bpm, avgBPM, posture
 
 # =====================================
+# NORMALIZATION FUNCTION
+# =====================================
+
+def normalize_sample(bpm, avgBPM, posture):
+
+    bpm_norm = (bpm - 40) / (140 - 40)
+    avg_norm = (avgBPM - 40) / (140 - 40)
+    posture_norm = posture / 2
+
+    return [bpm_norm, avg_norm, posture_norm]
+
+# =====================================
 # REALTIME LISTENER
 # =====================================
 
@@ -158,16 +166,16 @@ def listener(event):
 
     posture_encoded = posture_map.get(posture, 0)
 
-    sample = np.array([[bpm, avgBPM, posture_encoded]])
-    sample_scaled = scaler.transform(sample)
+    sample_scaled = normalize_sample(bpm, avgBPM, posture_encoded)
 
-    window.append(sample_scaled[0])
+    window.append(sample_scaled)
 
     print(f"Collected {len(window)}/{WINDOW_SIZE}")
 
     if len(window) >= WINDOW_SIZE:
 
         input_data = np.array([window])
+
         prediction = model.predict(input_data, verbose=0)[0]
 
         risk_score, status, normal, low, high = compute_risk_score(prediction, window)
@@ -205,21 +213,16 @@ def run_test_mode():
 
         bpm, avgBPM, posture = generate_test_sample()
 
-        sample = np.array([[bpm, avgBPM, posture]])
-        # Manual normalization (same range used in training)
-        bpm_norm = (bpm - 40) / (140 - 40)
-        avg_norm = (avgBPM - 40) / (140 - 40)
-        posture_norm = encoded_posture / 2
-        
-        sample_scaled = [bpm_norm, avg_norm, posture_norm]
+        sample_scaled = normalize_sample(bpm, avgBPM, posture)
 
         window.append(sample_scaled)
 
-        print(f"Simulated {len(window)}/60")
+        print(f"Simulated {len(window)}/{WINDOW_SIZE}")
 
         if len(window) >= WINDOW_SIZE:
 
             input_data = np.array([window])
+
             prediction = model.predict(input_data, verbose=0)[0]
 
             risk_score, status, normal, low, high = compute_risk_score(prediction, window)
@@ -259,4 +262,9 @@ else:
 
     print("Listening for ESP32 data...")
 
-    sensor_ref.listen(listener)
+    while True:
+        try:
+            sensor_ref.listen(listener)
+        except Exception as e:
+            print("Firebase disconnected:", e)
+            time.sleep(5)

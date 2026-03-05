@@ -8,8 +8,6 @@ import os
 
 print("FILES IN CONTAINER:", os.listdir())
 
-print("FILES IN CONTAINER:", os.listdir())
-
 # =====================================
 # SETTINGS
 # =====================================
@@ -273,5 +271,6 @@ else:
         except Exception as e:
             print("Firebase disconnected:", e)
             time.sleep(5)
+
 
 

@@ -2,7 +2,6 @@ import firebase_admin
 from firebase_admin import credentials, db
 import tensorflow as tf
 import numpy as np
-import joblib
 import random
 import time
 
@@ -21,9 +20,6 @@ WINDOW_SIZE = 60
 
 print("Loading LSTM model...")
 model = tf.keras.models.load_model("parasomnia_lstm.keras")
-
-print("Loading scaler...")
-scaler = joblib.load("scaler.save")
 
 # =====================================
 # FIREBASE INIT
@@ -210,9 +206,14 @@ def run_test_mode():
         bpm, avgBPM, posture = generate_test_sample()
 
         sample = np.array([[bpm, avgBPM, posture]])
-        sample_scaled = scaler.transform(sample)
+        # Manual normalization (same range used in training)
+        bpm_norm = (bpm - 40) / (140 - 40)
+        avg_norm = (avgBPM - 40) / (140 - 40)
+        posture_norm = encoded_posture / 2
+        
+        sample_scaled = [bpm_norm, avg_norm, posture_norm]
 
-        window.append(sample_scaled[0])
+        window.append(sample_scaled)
 
         print(f"Simulated {len(window)}/60")
 
@@ -257,4 +258,5 @@ if TEST_MODE:
 else:
 
     print("Listening for ESP32 data...")
+
     sensor_ref.listen(listener)

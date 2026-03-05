@@ -4,6 +4,9 @@ import tensorflow as tf
 import numpy as np
 import random
 import time
+import os
+
+print("FILES IN CONTAINER:", os.listdir())
 
 print("FILES IN CONTAINER:", os.listdir())
 
@@ -270,4 +273,5 @@ else:
         except Exception as e:
             print("Firebase disconnected:", e)
             time.sleep(5)
+
 

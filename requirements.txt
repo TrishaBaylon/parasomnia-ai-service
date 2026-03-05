@@ -1,0 +1,4 @@
+firebase-admin
+tensorflow
+numpy
+joblib
